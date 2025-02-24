@@ -112,18 +112,49 @@ class WavCapsDataset(torch.utils.data.Dataset):
 
 if __name__ == "__main__":
     # Example usage
+    from torch.utils.data import DataLoader
+
+    # Create dataset
     dataset = WavCapsDataset(
         split="train",
         sample_rate=16000,
         max_length=160000,  # 10 seconds at 16kHz
-        subset="freesound"
+        subset="freesound",
+        cache_dir="./cache"  # Cache downloads locally
     )
 
-    # Get a sample
+    # Get dataset statistics
+    stats = get_dataset_stats(dataset)
+    print("\nDataset Statistics:")
+    print(f"Total samples: {stats['total_samples']}")
+    print(f"Average duration: {stats['avg_duration']:.2f} seconds")
+    print("Source distribution:")
+    for source, count in stats['sources_distribution'].items():
+        print(f"  {source}: {count}")
+
+    # Get a single sample
     sample = dataset[0]
-    
+    print("\nSingle Sample Information:")
     print("Audio Shape:", sample['waveform'].shape)
     print("Caption:", sample['caption'])
     print("Duration:", sample['duration'])
     print("Source:", sample['source'])
     print("Filename:", sample['fname'])
+    print("Sampling Rate:", sample['sampling_rate'])
+
+    # Create dataloader for batch processing
+    dataloader = DataLoader(
+        dataset,
+        batch_size=32,
+        shuffle=True,
+        num_workers=4
+    )
+
+    # Show batch example
+    print("\nBatch Processing Example:")
+    for batch in dataloader:
+        print("Batch shapes:")
+        print("  Waveforms:", batch['waveform'].shape)
+        print("  Number of captions:", len(batch['caption']))
+        print("First caption in batch:", batch['caption'][0])
+        break  # Show only first batch
