@@ -1,108 +1,129 @@
 import torch
 import torchaudio
 import pandas as pd
-import json
-import os
+from datasets import load_dataset
+from typing import Optional, Callable, Tuple, Dict, Any
+import numpy as np
 
-class WavCapsBaseDataset(torch.utils.data.Dataset):
-    def __init__(self, metadata_path, audio_dir, sample_rate=16000, transform=None):
+class WavCapsDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        split: str = "train",
+        sample_rate: int = 16000,
+        transform: Optional[Callable] = None,
+        max_length: Optional[int] = None,
+        subset: Optional[str] = None
+    ):
         """
-        Base dataset class for WavCaps datasets.
+        WavCaps dataset loader using Hugging Face datasets.
 
         Args:
-            metadata_path (str): Path to the metadata file (JSON or CSV).
-            audio_dir (str): Directory containing the audio files.
-            sample_rate (int, optional): Target sample rate for resampling (default: 16000).
-            transform (callable, optional): Optional transformation to apply to the waveform.
+            split (str): Dataset split ('train', 'validation', or 'test')
+            sample_rate (int): Target sample rate for audio
+            transform (callable, optional): Transform to apply to the audio
+            max_length (int, optional): Max length of audio in samples (will pad/trim)
+            subset (str, optional): Dataset subset ('freesound', 'audioset', 'bbc', or 'soundbible')
         """
-        self.audio_dir = audio_dir
         self.sample_rate = sample_rate
         self.transform = transform
-        self.data = self._load_metadata(metadata_path)
+        self.max_length = max_length
+        
+        # Load the dataset from Hugging Face
+        self.dataset = load_dataset("cvssp/WavCaps", split=split)
+        
+        # Filter by subset if specified
+        if subset:
+            if subset not in ['freesound', 'audioset', 'bbc', 'soundbible']:
+                raise ValueError("subset must be one of: freesound, audioset, bbc, soundbible")
+            self.dataset = self.dataset.filter(lambda x: x['source'] == subset)
 
-    def _load_metadata(self, metadata_path):
-        """Loads metadata from a JSON or CSV file."""
-        if metadata_path.endswith('.json'):
-            with open(metadata_path, 'r') as f:
-                metadata = json.load(f)
-            return list(metadata.items())  # Convert dictionary to list of tuples
-        elif metadata_path.endswith('.csv'):
-            return pd.read_csv(metadata_path).values.tolist()
-        else:
-            raise ValueError("Metadata file must be in JSON or CSV format.")
+    def __len__(self) -> int:
+        return len(self.dataset)
 
-    def __len__(self):
-        return len(self.data)
+    def _process_audio(self, waveform: torch.Tensor, orig_sr: int) -> torch.Tensor:
+        """Process audio by resampling, converting to mono, and padding/trimming."""
+        # Resample if necessary
+        if orig_sr != self.sample_rate:
+            waveform = torchaudio.transforms.Resample(
+                orig_freq=orig_sr,
+                new_freq=self.sample_rate
+            )(waveform)
 
-    def __getitem__(self, idx):
-        """Loads an audio file and returns its waveform and caption."""
-        audio_filename, caption = self.data[idx]
-        audio_path = os.path.join(self.audio_dir, audio_filename)
+        # Convert to mono if stereo
+        if waveform.shape[0] > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
 
+        # Handle max_length if specified
+        if self.max_length is not None:
+            if waveform.shape[1] > self.max_length:
+                # Trim
+                waveform = waveform[:, :self.max_length]
+            elif waveform.shape[1] < self.max_length:
+                # Pad with zeros
+                pad_length = self.max_length - waveform.shape[1]
+                waveform = torch.nn.functional.pad(waveform, (0, pad_length))
+
+        return waveform
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get a single item from the dataset.
+
+        Returns:
+            dict containing:
+                - waveform (torch.Tensor): Audio waveform
+                - caption (str): Audio caption
+                - duration (float): Audio duration in seconds
+                - source (str): Source dataset
+                - fname (str): Original filename
+        """
+        item = self.dataset[idx]
+        
         try:
-            # Load audio file
-            waveform, sample_rate = torchaudio.load(audio_path)
+            # Load audio
+            waveform = torch.from_numpy(item['audio']['array']).float()
+            orig_sr = item['audio']['sampling_rate']
 
-            # Resample if needed
-            if sample_rate != self.sample_rate:
-                waveform = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=self.sample_rate)(waveform)
+            # Process audio
+            waveform = self._process_audio(waveform, orig_sr)
 
-            # Apply transformations if specified
-            if self.transform:
+            # Apply transforms if specified
+            if self.transform is not None:
                 waveform = self.transform(waveform)
 
-            return waveform, caption
+            return {
+                'waveform': waveform,
+                'caption': item['caption'],
+                'duration': item['duration'],
+                'source': item['source'],
+                'fname': item['fname']
+            }
 
         except Exception as e:
-            print(f"Error loading {audio_path}: {e}")
-            return None, None
-
-
-class FreesoundDataset(WavCapsBaseDataset):
-    """Dataset class for the Freesound portion of WavCaps."""
-    def __init__(self, metadata_path, audio_dir, sample_rate=16000, transform=None):
-        super().__init__(metadata_path, audio_dir, sample_rate, transform)
-
-
-class BBCSoundEffectsDataset(WavCapsBaseDataset):
-    """Dataset class for the BBC Sound Effects portion of WavCaps."""
-    def __init__(self, metadata_path, audio_dir, sample_rate=16000, transform=None):
-        super().__init__(metadata_path, audio_dir, sample_rate, transform)
-
-
-class SoundBibleDataset(WavCapsBaseDataset):
-    """Dataset class for the SoundBible portion of WavCaps."""
-    def __init__(self, metadata_path, audio_dir, sample_rate=16000, transform=None):
-        super().__init__(metadata_path, audio_dir, sample_rate, transform)
-
-
-class AudioSetDataset(WavCapsBaseDataset):
-    """Dataset class for the AudioSet (Strongly-labeled) portion of WavCaps."""
-    def __init__(self, metadata_path, audio_dir, sample_rate=16000, transform=None):
-        super().__init__(metadata_path, audio_dir, sample_rate, transform)
-
+            print(f"Error loading item {idx}: {e}")
+            # Return zero tensor with correct shape in case of error
+            shape = (1, self.max_length) if self.max_length else (1, self.sample_rate)
+            return {
+                'waveform': torch.zeros(shape),
+                'caption': '',
+                'duration': 0.0,
+                'source': '',
+                'fname': ''
+            }
 
 if __name__ == "__main__":
     # Example usage
-    metadata_paths = {
-        "freesound": "path/to/freesound_metadata.json",
-        "bbc": "path/to/bbc_metadata.json",
-        "soundbible": "path/to/soundbible_metadata.json",
-        "audioset": "path/to/audioset_metadata.json"
-    }
-    audio_dirs = {
-        "freesound": "path/to/freesound_audio/",
-        "bbc": "path/to/bbc_audio/",
-        "soundbible": "path/to/soundbible_audio/",
-        "audioset": "path/to/audioset_audio/"
-    }
+    dataset = WavCapsDataset(
+        split="train",
+        sample_rate=16000,
+        max_length=160000,  # 10 seconds at 16kHz
+        subset="freesound"
+    )
 
-    # Load one of the datasets
-    dataset = FreesoundDataset(metadata_paths["freesound"], audio_dirs["freesound"])
-
-    # Fetch a sample
-    waveform, caption = dataset[0]
+    # Get a sample
+    sample = dataset[0]
     
-    if waveform is not None:
-        print("Audio Shape:", waveform.shape)
-        print("Caption:", caption)
+    print("Audio Shape:", sample['waveform'].shape)
+    print("Caption:", sample['caption'])
+    print("Duration:", sample['duration'])
+    print("Source:", sample['source'])
+    print("Filename:", sample['fname'])
