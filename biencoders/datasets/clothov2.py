@@ -1,22 +1,33 @@
 import os
-import torch
+from typing import Optional, Callable
+import numpy as np
 import pandas as pd
+import torch
 import torchaudio
 from torch.utils.data import Dataset
-import numpy as np
+
 
 
 class ClothoDataset(Dataset):
-    def __init__(self, csv_file, audio_dir, transform=None):
+    def __init__(
+        self,
+        csv_file: str,
+        audio_dir: str,
+        transform: Optional[Callable],
+        target_sample_rate: int = 16000
+    ):
         """
         Args:
             csv_file (str): Path to the CSV file with captions.
             audio_dir (str): Path to the directory with audio files.
             transform (callable, optional): Optional transform to be applied
                                             on an audio sample.
+            target_sample_rate (int, optional): Desired sample
+              rate for audio (default: 16kHz).
         """
         self.audio_dir = audio_dir
         self.transform = transform
+        self.target_sample_rate = target_sample_rate
 
         # Load captions and file names
         self.captions_df = pd.read_csv(csv_file)
@@ -25,6 +36,14 @@ class ClothoDataset(Dataset):
         self.file_names = self.captions_df['file_name'].tolist()
         self.captions = self.captions_df[[
             'caption_1', 'caption_2', 'caption_3', 'caption_4', 'caption_5']].values.tolist()
+
+    def resample_if_needed(self, waveform, sample_rate):
+        if sample_rate != self.target_sample_rate:
+            waveform = torchaudio.transforms.Resample(
+                orig_freq=sample_rate,
+                new_freq=self.target_sample_rate
+            )(waveform)
+        return waveform
 
     def __len__(self):
         return len(self.file_names)
@@ -36,6 +55,7 @@ class ClothoDataset(Dataset):
         # Load audio
         audio_path = os.path.join(self.audio_dir, self.file_names[idx])
         waveform, sample_rate = torchaudio.load(audio_path)
+        waveform = self.resample_if_needed(waveform, sample_rate)
 
         # Get captions (all 5 captions for the audio file)
         captions = self.captions[idx]

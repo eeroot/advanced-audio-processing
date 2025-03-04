@@ -7,6 +7,15 @@ from clothov2 import ClothoDataset
 import shutil
 import numpy as np
 import torchaudio
+from utils import random_augment
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG if os.environ.get('DEBUG') == '1' else logging.INFO,
+    format='[%(levelname)s] %(filename)s | %(message)s'
+)
+
+
 
 class AggregatedDataset(Dataset):
     def __init__(
@@ -128,18 +137,20 @@ if __name__ == "__main__":
             audiocaps_csv='test_audiocaps.csv',
             audiocaps_dir='test_audio_audiocaps',
             clotho_csv='test_clotho.csv',
-            clotho_dir='test_audio_clotho'
+            clotho_dir='test_audio_clotho',
+            transform=random_augment,
         )
         
-        print(f"Total dataset size: {len(dataset)}")
+        print(f"\nTotal dataset size: {len(dataset)}\n")
         
         # Test a few samples
         for i in [0, len(dataset)-1]:
             waveform, captions = dataset[i]
             dataset_type = dataset.get_dataset_identifier(i)
-            print(f"\nSample {i} from {dataset_type}:")
+            print(f"Sample {i} from {dataset_type}:")
             print(f"Waveform shape: {waveform.shape}")
             print(f"Captions: {captions}")
+            print()
             
     finally:
         # Clean up

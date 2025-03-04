@@ -1,19 +1,22 @@
+import os
+import shutil
+from typing import Optional, Callable
+
+import numpy as np
+import pandas as pd
 import torch
 import torchaudio
 from torch.utils.data import Dataset
-import pandas as pd
-import os
-import numpy as np
-import shutil
+
 
 
 class AudioCapsDataset(Dataset):
     def __init__(
         self,
-        csv_file,
-        audio_dir,
-        transform=None,
-        target_sample_rate=16000
+        csv_file: str,
+        audio_dir: str,
+        transform: Optional[Callable],
+        target_sample_rate: int = 16000
     ):
         """
         Args:
