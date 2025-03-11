@@ -119,3 +119,11 @@ if __name__ == "__main__":
         if os.path.exists(sample_dir):
             shutil.rmtree(sample_dir)
             print(f"Cleaned up {sample_dir}")
+
+
+
+# Example usage:
+# dataset = ClothoDataset(audio_dir='../development',
+#                         csv_file='../clotho_captions_development.csv')
+# print(len(dataset))
+# print(dataset[0])
