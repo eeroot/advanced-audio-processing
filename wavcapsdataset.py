@@ -1,160 +1,135 @@
+from dataclasses import dataclass, field
+import json
+import os
 import torch
 import torchaudio
-import pandas as pd
-from datasets import load_dataset
-from typing import Optional, Callable, Tuple, Dict, Any
+from typing import Tuple, Optional, Dict
 import numpy as np
 
-class WavCapsDataset(torch.utils.data.Dataset):
-    def __init__(
-        self,
-        split: str = "train",
-        sample_rate: int = 16000,
-        transform: Optional[Callable] = None,
-        max_length: Optional[int] = None,
-        subset: Optional[str] = None
-    ):
-        """
-        WavCaps dataset loader using Hugging Face datasets.
-
-        Args:
-            split (str): Dataset split ('train', 'validation', or 'test')
-            sample_rate (int): Target sample rate for audio
-            transform (callable, optional): Transform to apply to the audio
-            max_length (int, optional): Max length of audio in samples (will pad/trim)
-            subset (str, optional): Dataset subset ('freesound', 'audioset', 'bbc', or 'soundbible')
-        """
-        self.sample_rate = sample_rate
-        self.transform = transform
-        self.max_length = max_length
+@dataclass
+class SoundBibleData:
+    audio_id: str
+    base_audio_dir: str
+    metadata_file: str
+    sample_rate: int = 16000  # Standard sample rate for most audio models
+    max_length: float = 30.0  # Maximum audio length in seconds
+    audio_path: str = field(init=False)
+    metadata: dict = field(init=False)
+    
+    def __post_init__(self):
+        self.audio_path = os.path.join(self.base_audio_dir, f"{self.audio_id}.flac")
+        self.metadata = self.load_metadata()
         
-        # Load the dataset from Hugging Face
-        self.dataset = load_dataset("cvssp/WavCaps", split=split)
+    def load_metadata(self) -> Dict:
+        """Load and return metadata for the audio file."""
+        with open(self.metadata_file, 'r') as file:
+            metadata = json.load(file)
+        return metadata.get(self.audio_id, {})
+    
+    def load_audio(self) -> Tuple[torch.Tensor, int]:
+        """
+        Load and preprocess audio file.
         
-        # Filter by subset if specified
-        if subset:
-            if subset not in ['freesound', 'audioset', 'bbc', 'soundbible']:
-                raise ValueError("subset must be one of: freesound, audioset, bbc, soundbible")
-            self.dataset = self.dataset.filter(lambda x: x['source'] == subset)
-
-    def __len__(self) -> int:
-        return len(self.dataset)
-
-    def _process_audio(self, waveform: torch.Tensor, orig_sr: int) -> torch.Tensor:
-        """Process audio by resampling, converting to mono, and padding/trimming."""
-        # Resample if necessary
-        if orig_sr != self.sample_rate:
-            waveform = torchaudio.transforms.Resample(
-                orig_freq=orig_sr,
-                new_freq=self.sample_rate
-            )(waveform)
-
+        Returns:
+            Tuple[torch.Tensor, int]: (audio_tensor, sample_rate)
+        """
+        waveform, sr = torchaudio.load(self.audio_path)
+        
         # Convert to mono if stereo
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)
-
-        # Handle max_length if specified
-        if self.max_length is not None:
-            if waveform.shape[1] > self.max_length:
-                # Trim
-                waveform = waveform[:, :self.max_length]
-            elif waveform.shape[1] < self.max_length:
-                # Pad with zeros
-                pad_length = self.max_length - waveform.shape[1]
-                waveform = torch.nn.functional.pad(waveform, (0, pad_length))
-
-        return waveform
-
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        """Get a single item from the dataset.
-
-        Returns:
-            dict containing:
-                - waveform (torch.Tensor): Audio waveform
-                - caption (str): Audio caption
-                - duration (float): Audio duration in seconds
-                - source (str): Source dataset
-                - fname (str): Original filename
+            
+        # Resample if necessary
+        if sr != self.sample_rate:
+            resampler = torchaudio.transforms.Resample(sr, self.sample_rate)
+            waveform = resampler(waveform)
+            
+        # Trim or pad to max_length
+        max_samples = int(self.max_length * self.sample_rate)
+        if waveform.shape[1] > max_samples:
+            waveform = waveform[:, :max_samples]
+        elif waveform.shape[1] < max_samples:
+            pad_length = max_samples - waveform.shape[1]
+            waveform = torch.nn.functional.pad(waveform, (0, pad_length))
+            
+        return waveform, self.sample_rate
+    
+    def get_features(self) -> Optional[torch.Tensor]:
         """
-        item = self.dataset[idx]
+        Extract audio features (mel spectrogram) for model input.
         
+        Returns:
+            torch.Tensor: Mel spectrogram features
+        """
         try:
-            # Load audio
-            waveform = torch.from_numpy(item['audio']['array']).float()
-            orig_sr = item['audio']['sampling_rate']
-
-            # Process audio
-            waveform = self._process_audio(waveform, orig_sr)
-
-            # Apply transforms if specified
-            if self.transform is not None:
-                waveform = self.transform(waveform)
-
-            return {
-                'waveform': waveform,
-                'caption': item['caption'],
-                'duration': item['duration'],
-                'source': item['source'],
-                'fname': item['fname']
-            }
-
+            waveform, sr = self.load_audio()
+            
+            # Mel spectrogram transformation
+            mel_transform = torchaudio.transforms.MelSpectrogram(
+                sample_rate=sr,
+                n_fft=1024,
+                hop_length=512,
+                n_mels=80,
+                power=2.0
+            )
+            
+            # Convert to mel spectrogram
+            mel_spec = mel_transform(waveform)
+            
+            # Convert to log scale
+            mel_spec = torch.log(mel_spec + 1e-9)
+            
+            # Normalize
+            mean = mel_spec.mean()
+            std = mel_spec.std()
+            mel_spec = (mel_spec - mean) / (std + 1e-9)
+            
+            return mel_spec
+            
         except Exception as e:
-            print(f"Error loading item {idx}: {e}")
-            # Return zero tensor with correct shape in case of error
-            shape = (1, self.max_length) if self.max_length else (1, self.sample_rate)
+            print(f"Error processing audio file {self.audio_id}: {str(e)}")
+            return None
+    
+    def get_training_item(self) -> Optional[Dict]:
+        """
+        Get complete item for training including audio features and metadata.
+        
+        Returns:
+            Dict containing:
+                - features: mel spectrogram
+                - caption: text description
+                - duration: audio duration
+                - sample_rate: audio sample rate
+                - audio_id: unique identifier
+        """
+        try:
+            features = self.get_features()
+            if features is None:
+                return None
+                
             return {
-                'waveform': torch.zeros(shape),
-                'caption': '',
-                'duration': 0.0,
-                'source': '',
-                'fname': ''
+                'features': features,
+                'caption': self.metadata.get('caption', ''),
+                'duration': self.metadata.get('duration', 0.0),
+                'sample_rate': self.sample_rate,
+                'audio_id': self.audio_id
             }
+            
+        except Exception as e:
+            print(f"Error creating training item for {self.audio_id}: {str(e)}")
+            return None
 
-if __name__ == "__main__":
-    # Example usage
-    from torch.utils.data import DataLoader
+""" # Example usage for training
+sound_data = SoundBibleData(
+    audio_id='49',
+    base_audio_dir='path/to/audio',
+    metadata_file='path/to/metadata.json'
+)
 
-    # Create dataset
-    dataset = WavCapsDataset(
-        split="train",
-        sample_rate=16000,
-        max_length=160000,  # 10 seconds at 16kHz
-        subset="freesound",
-        cache_dir="./cache"  # Cache downloads locally
-    )
-
-    # Get dataset statistics
-    stats = get_dataset_stats(dataset)
-    print("\nDataset Statistics:")
-    print(f"Total samples: {stats['total_samples']}")
-    print(f"Average duration: {stats['avg_duration']:.2f} seconds")
-    print("Source distribution:")
-    for source, count in stats['sources_distribution'].items():
-        print(f"  {source}: {count}")
-
-    # Get a single sample
-    sample = dataset[0]
-    print("\nSingle Sample Information:")
-    print("Audio Shape:", sample['waveform'].shape)
-    print("Caption:", sample['caption'])
-    print("Duration:", sample['duration'])
-    print("Source:", sample['source'])
-    print("Filename:", sample['fname'])
-    print("Sampling Rate:", sample['sampling_rate'])
-
-    # Create dataloader for batch processing
-    dataloader = DataLoader(
-        dataset,
-        batch_size=32,
-        shuffle=True,
-        num_workers=4
-    )
-
-    # Show batch example
-    print("\nBatch Processing Example:")
-    for batch in dataloader:
-        print("Batch shapes:")
-        print("  Waveforms:", batch['waveform'].shape)
-        print("  Number of captions:", len(batch['caption']))
-        print("First caption in batch:", batch['caption'][0])
-        break  # Show only first batch
+# Get training item
+training_item = sound_data.get_training_item()
+if training_item:
+    features = training_item['features']  # Shape: [n_mels, time]
+    caption = training_item['caption']
+    # Use these in your training loop
+ """
