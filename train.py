@@ -1,20 +1,30 @@
-import torch
-from torch.utils.data import DataLoader, Dataset
-from transformers import RobertaTokenizer, RobertaModel, Wav2Vec2Processor, Wav2Vec2Model
-from torch import nn, optim
-import torch.nn.functional as F
-from sklearn.metrics import accuracy_score
-import pandas as pd
-import os
 from tqdm import tqdm
-import torchaudio
 import numpy as np
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
+
+import torch
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
+from transformers import RobertaTokenizer, RobertaModel, Wav2Vec2Processor, Wav2Vec2Model
 
 from biencoders.datasets.aggregated import AggregatedDataset
+from biencoders.datasets.utils import random_augment
+from biencoders.model.biencoder import TextAudioBiencoder, TransformerDecoder 
 
+
+def collate_fn(batch):
+    audio_inputs, text_inputs = zip(*batch)  # Unpack batch
+
+    # Stack and pad audio inputs
+    audio_inputs = {key: pad_sequence([a[key].squeeze(0) for a in audio_inputs], batch_first=True, padding_value=0)
+                    for key in audio_inputs[0].keys()}
+
+    # Stack and pad text inputs
+    text_inputs = {key: pad_sequence([t[key].squeeze(0) for t in text_inputs], batch_first=True, padding_value=0)
+                   for key in text_inputs[0].keys()}
+
+    return audio_inputs, text_inputs
 
 
 # Contrastive loss function
@@ -127,35 +137,47 @@ def evaluate_test(model, data_loader, device='cpu'):
     return recall_k1, recall_k5, recall_k10, kl_div
 
 
-
 # Other helper functions (recall_at_k, kl_divergence, plot_tsne) remain the same
 
 if __name__ == "__main__":
+    # Check if CUDA is available, else use CPU
+    device = "mps" if torch.backends.mps.is_available(
+        ) else "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Process on {device}", end="\n\n")
+
     # Load pre-trained models
     audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-large-960h")
     text_encoder = RobertaModel.from_pretrained("roberta-large")
+    tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
 
-    train_dataset = AudioCapsDataset(
-        audiocaps_dir="data/audiocaps",
+    # Load dataset splits using AggregatedDataset class
+    audiocaps_dir = 'data/audiocaps'
+    dataset_train = AggregatedDataset(
+        audiocaps_dir=audiocaps_dir,
+        transform=random_augment,
     )
-    val_dataset = AudioCapsDataset(
-        split="val",
-        audiocaps_dir="data/audiocaps",
+    dataset_val = AggregatedDataset(
+        split='val',
+        audiocaps_dir=audiocaps_dir,
     )
-    test_dataset = AudioCapsDataset(
-        split="test",
-        audiocaps_dir="data/audiocaps",
+    dataset_test = AggregatedDataset(
+        split='test',
+        audiocaps_dir=audiocaps_dir,
     )
 
     # DataLoader
-    train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, collate_fn=collate_fn)
-    val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, collate_fn=collate_fn)
-    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False, collate_fn=collate_fn)
+    train_loader = DataLoader(
+        dataset_train, batch_size=16, shuffle=True, collate_fn=collate_fn)
+    val_loader = DataLoader(dataset_val, batch_size=16,
+                            shuffle=False, collate_fn=collate_fn)
+    test_loader = DataLoader(dataset_test, batch_size=16,
+                             shuffle=False, collate_fn=collate_fn)
 
     # Instantiate model with transformer decoder
     model = TextAudioBiencoder(audio_encoder, text_encoder, embedding_dim=768)
-    model.decoder = TransformerDecoder(embedding_dim=768, vocab_size=len(tokenizer))
+    model.decoder = TransformerDecoder(
+        embedding_dim=768, vocab_size=len(tokenizer))
 
     # Train the model
     train(model, train_loader, val_loader, test_loader, epochs=2, lr=1e-5)
-    evaluate_test(model, test_loader, device="cpu")
+    evaluate_test(model, test_loader, device=device)

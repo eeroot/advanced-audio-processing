@@ -55,17 +55,3 @@ class TransformerDecoder(nn.Module):
         # Output layer to get prediction
         output = self.fc_out(transformer_out)
         return output
-
-
-def collate_fn(batch):
-    audio_inputs, text_inputs = zip(*batch)  # Unpack batch
-
-    # Stack and pad audio inputs
-    audio_inputs = {key: pad_sequence([a[key].squeeze(0) for a in audio_inputs], batch_first=True, padding_value=0)
-                    for key in audio_inputs[0].keys()}
-
-    # Stack and pad text inputs
-    text_inputs = {key: pad_sequence([t[key].squeeze(0) for t in text_inputs], batch_first=True, padding_value=0)
-                   for key in text_inputs[0].keys()}
-
-    return audio_inputs, text_inputs
