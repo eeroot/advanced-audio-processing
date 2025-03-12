@@ -1,0 +1,9 @@
+audiocaps-download
+yt-dlp
+huggingface-hub
+torch
+torchaudio
+transformers
+numpy
+pandas
+matplotlib
