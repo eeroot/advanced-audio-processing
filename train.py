@@ -118,47 +118,47 @@ def train(
     print(f"Test Cosine Similarity: {test_score}")
 
 
-def evaluate_test(model, data_loader, device='cpu'):
-    """Evaluates model using Recall@K, KL Divergence, and t-SNE."""
-    model.eval()
-    audio_embeddings, text_embeddings = [], []
+# def evaluate_test(model, data_loader, device='cpu'):
+#     """Evaluates model using Recall@K, KL Divergence, and t-SNE."""
+#     model.eval()
+#     audio_embeddings, text_embeddings = [], []
 
-    with torch.no_grad():
-        for audio_input, text_input in tqdm(data_loader, desc="Evaluating"):
-            audio_input = {key: val.squeeze(1).to(
-                device) for key, val in audio_input.items()}
-            text_input = {key: val.squeeze(1).to(device)
-                          for key, val in text_input.items()}
+#     with torch.no_grad():
+#         for audio_input, text_input in tqdm(data_loader, desc="Evaluating"):
+#             audio_input = {key: val.squeeze(1).to(
+#                 device) for key, val in audio_input.items()}
+#             text_input = {key: val.squeeze(1).to(device)
+#                           for key, val in text_input.items()}
 
-            audio_embeds, text_embeds = model(audio_input, text_input)
-            audio_embeddings.append(audio_embeds)
-            text_embeddings.append(text_embeds)
+#             audio_embeds, text_embeds = model(audio_input, text_input)
+#             audio_embeddings.append(audio_embeds)
+#             text_embeddings.append(text_embeds)
 
-    # Convert to tensors
-    audio_embeddings = torch.cat(audio_embeddings)
-    text_embeddings = torch.cat(text_embeddings)
+#     # Convert to tensors
+#     audio_embeddings = torch.cat(audio_embeddings)
+#     text_embeddings = torch.cat(text_embeddings)
 
-    # Compute cosine similarity
-    similarity_matrix = torch.mm(
-        text_embeddings, audio_embeddings.T).cpu().numpy()
+#     # Compute cosine similarity
+#     similarity_matrix = torch.mm(
+#         text_embeddings, audio_embeddings.T).cpu().numpy()
 
-    # Compute Recall@K
-    recall_k1 = recall_at_k(similarity_matrix, 1)
-    recall_k5 = recall_at_k(similarity_matrix, 5)
-    recall_k10 = recall_at_k(similarity_matrix, 10)
+#     # Compute Recall@K
+#     recall_k1 = recall_at_k(similarity_matrix, 1)
+#     recall_k5 = recall_at_k(similarity_matrix, 5)
+#     recall_k10 = recall_at_k(similarity_matrix, 10)
 
-    # Compute KL Divergence
-    kl_div = kl_divergence(audio_embeddings, text_embeddings)
+#     # Compute KL Divergence
+#     kl_div = kl_divergence(audio_embeddings, text_embeddings)
 
-    # Print results
-    print(
-        f"Recall@1: {recall_k1:.4f}, Recall@5: {recall_k5:.4f}, Recall@10: {recall_k10:.4f}")
-    print(f"KL Divergence: {kl_div:.4f}")
+#     # Print results
+#     print(
+#         f"Recall@1: {recall_k1:.4f}, Recall@5: {recall_k5:.4f}, Recall@10: {recall_k10:.4f}")
+#     print(f"KL Divergence: {kl_div:.4f}")
 
-    # t-SNE Visualization
-    plot_tsne(audio_embeddings, text_embeddings)
+#     # t-SNE Visualization
+#     plot_tsne(audio_embeddings, text_embeddings)
 
-    return recall_k1, recall_k5, recall_k10, kl_div
+#     return recall_k1, recall_k5, recall_k10, kl_div
 
 
 # Other helper functions (recall_at_k, kl_divergence, plot_tsne) remain the same
