@@ -1,14 +1,20 @@
-import torch
-from torch.utils.data import Dataset, ConcatDataset
-import pandas as pd
 import os
+import torch
+import shutil
+import logging
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import torchaudio
+from torch.utils.data import Dataset, ConcatDataset
+from transformers import RobertaTokenizer, Wav2Vec2Processor
+
+from utils import random_augment
 from audiocaps import AudioCapsDataset
 from clothov2 import ClothoDataset
-import shutil
-import numpy as np
-import torchaudio
-from utils import random_augment
-import logging
+
+
 
 logging.basicConfig(
     level=logging.DEBUG if os.environ.get('DEBUG') == '1' else logging.INFO,
@@ -20,39 +26,55 @@ logging.basicConfig(
 class AggregatedDataset(Dataset):
     def __init__(
         self,
-        audiocaps_csv,
-        audiocaps_dir,
-        clotho_csv,
-        clotho_dir,
+        split="train",
+        audiocaps_dir: Path,
+        clotho_csv: Path = None,
+        clotho_dir: Path = None,
         transform=None,
         target_sample_rate=16000
     ):
         """
         Args:
-            audiocaps_csv (str): Path to AudioCaps CSV file
             audiocaps_dir (str): Path to AudioCaps audio directory
-            clotho_csv (str): Path to Clotho CSV file
+            clotho_csv (Path): Path to Clotho CSV file
             clotho_dir (str): Path to Clotho audio directory
             transform (callable, optional): Transform to apply to audio
             target_sample_rate (int): Target sample rate for audio files
         """
         # Initialize individual datasets
+        logging.info("Initializing AudioCaps dataset...")
+        audio_processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-large-960h")
+        tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
+        
+        # Load data
+        csv = pd.read_csv(audiocaps_dir / f"{split}.csv")
+
+        # Extract audio IDs and captions
+        audio_ids = csv['audiocap_id'].tolist()
+        captions = csv['caption'].tolist()
+
         self.audiocaps_dataset = AudioCapsDataset(
-            csv_file=audiocaps_csv,
-            audio_dir=audiocaps_dir,
-            transform=transform,
-            target_sample_rate=target_sample_rate
+            audio_ids=audio_ids,
+            captions=captions,
+            audio_folder=audiocaps_dir / split,
+            tokenizer=tokenizer,
+            audio_processor=audio_processor
         )
-        
-        self.clotho_dataset = ClothoDataset(
-            csv_file=clotho_csv,
-            audio_dir=clotho_dir,
-            transform=transform
-        )
-        
-        # Store total length
         self.audiocaps_len = len(self.audiocaps_dataset)
-        self.clotho_len = len(self.clotho_dataset)
+        
+        if clotho_csv and clotho_dir:
+            logging.info("Initializing Clotho dataset...")
+            self.clotho_dataset = ClothoDataset(
+                csv_file=clotho_csv,
+                audio_dir=clotho_dir,
+                transform=transform
+            )
+            self.clotho_len = len(self.clotho_dataset)
+        else:
+            logging.warning("Clotho dataset not provided. Skipping...")
+            self.clotho_dataset = None
+            self.clotho_len = 0
+
         
     def __len__(self):
         return self.audiocaps_len + self.clotho_len

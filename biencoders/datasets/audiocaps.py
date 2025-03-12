@@ -1,101 +1,65 @@
-import os
-import shutil
-from typing import Optional, Callable
-
-import numpy as np
-import pandas as pd
+#Transformer decoder architecture
 import torch
+from torch.utils.data import DataLoader, Dataset
+from transformers import RobertaTokenizer, RobertaModel, Wav2Vec2Processor, Wav2Vec2Model
+from torch import nn, optim
+import torch.nn.functional as F
+from sklearn.metrics import accuracy_score
+import pandas as pd
+import os
+from tqdm import tqdm
 import torchaudio
-from torch.utils.data import Dataset
+import numpy as np
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
+from torch.nn.utils.rnn import pad_sequence
 
 
-
+# Dataset Class for text-audio retrieval
 class AudioCapsDataset(Dataset):
-    def __init__(
-        self,
-        csv_file: str,
-        audio_dir: str,
-        transform: Optional[Callable],
-        target_sample_rate: int = 16000
-    ):
-        """
-        Args:
-            csv_file (str): Path to the CSV file containing
-              audio file names and captions.
-            audio_dir (str): Directory containing audio files.
-            transform (callable, optional): Optional transform
-              to be applied to the audio.
-            target_sample_rate (int, optional): Desired sample
-              rate for audio (default: 16kHz).
-        """
-        self.data = pd.read_csv(csv_file)
-        self.audio_dir = audio_dir
-        self.transform = transform
-        self.target_sample_rate = target_sample_rate
-
-    def resample_if_needed(self, waveform, sample_rate):
-        if sample_rate != self.target_sample_rate:
-            waveform = torchaudio.transforms.Resample(
-                orig_freq=sample_rate,
-                new_freq=self.target_sample_rate
-            )(waveform)
-        return waveform
+    def __init__(self, audio_ids, captions, audio_folder, tokenizer, audio_processor):
+        self.audio_ids = audio_ids
+        self.captions = captions
+        self.audio_folder = audio_folder
+        self.tokenizer = tokenizer
+        self.audio_processor = audio_processor
 
     def __len__(self):
-        return len(self.data)
+        return len(self.audio_ids)
 
     def __getitem__(self, idx):
-        row = self.data.iloc[idx]
-        audio_path = os.path.join(self.audio_dir, row['file_name'])
-        waveform, sample_rate = torchaudio.load(audio_path)
-        waveform = self.resample_if_needed(waveform, sample_rate)
+      while True:
+        audio_id = self.audio_ids[idx]
+        caption = self.captions[idx]
 
-        if self.transform:
-            waveform = self.transform(waveform)
+        # Load audio using torchaudio
+        audio_path = os.path.join(self.audio_folder, f"{audio_id}.wav")
+        if not os.path.exists(audio_path):
+          print(f"Warning: {audio_path} not found. Skipping.")
+          idx = (idx + 1) % len(self.audio_ids)  # Move to next index (avoid infinite loop)
+          continue
 
-        caption = row['caption']
-        return waveform, caption
+        waveform, sr = torchaudio.load(audio_path)
 
+        if waveform.shape[0] > 1:
+          waveform = waveform.mean(dim=0, keepdim=True)
 
-if __name__ == "__main__":
+        if sr != 16000:
+          resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)
+          waveform = resampler(waveform)
 
-    # Create sample audio directory
-    os.makedirs("test_audio", exist_ok=True)
+        # **Padding or Truncation**
+        max_length = 16000 * 10  # 10 seconds at 16kHz
+        if waveform.shape[1] > max_length:
+          waveform = waveform[:, :max_length]  # Truncate
+        else:
+          pad_length = max_length - waveform.shape[1]
+          waveform = F.pad(waveform, (0, pad_length))  # Pad with zeros
 
-    # Generate synthetic audio files
-    freqs = [440, 880, 1320]
-    for f in freqs:
-        # Create a simple sine wave
-        duration = 2  # seconds
-        t = np.linspace(0, duration, int(16000 * duration))
-        audio_data = np.sin(2 * np.pi * f * t)
-        # Convert to torch tensor and save
-        waveform = torch.from_numpy(audio_data[None, :]).float()
-        filename = f"sample_{f}.wav"
-        torchaudio.save(f"test_audio/{filename}", waveform, 16000)
+        # Process audio to match the required input format for Wav2Vec2
+        audio_input = self.audio_processor(waveform.squeeze(0), return_tensors="pt", sampling_rate=16000)
 
-    # Create sample CSV
-    sample_data = pd.DataFrame({
-        'file_name': [f"sample_{f}.wav" for f in freqs],
-        'caption': [f'A pure sine wave at {f} Hz' for f in freqs]
-    })
-    sample_data.to_csv('test_audiocaps.csv', index=False)
+        # Tokenize the text
+        text_input = self.tokenizer(caption, return_tensors="pt", padding=True, truncation=True)
 
-    try:
-        # Test the dataset
-        dataset = AudioCapsDataset(
-            csv_file='test_audiocaps.csv',
-            audio_dir='test_audio'
-        )
-
-        # Test loading items
-        for i in range(len(dataset)):
-            waveform, caption = dataset[i]
-            print(f"\nSample {i}:")
-            print(f"Waveform shape: {waveform.shape}")
-            print(f"Caption: {caption}")
-
-    finally:
-        # Clean up
-        shutil.rmtree('test_audio')
-        os.remove('test_audiocaps.csv')
+        return audio_input, text_input
