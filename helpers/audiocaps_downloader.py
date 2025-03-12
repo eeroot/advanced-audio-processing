@@ -51,9 +51,6 @@ for i, split in enumerate(dataset_split):
                 end_seconds=end_time,
                 audiocaps_id=str(audiocap_id)
             )
-
-            print(f"Saved: {save_path}{audiocap_id}.wav")
-
         except Exception as e:
             print(f"Error downloading {audiocap_id}: {e}")
 
