@@ -19,10 +19,10 @@ from torch.nn.utils.rnn import pad_sequence
 class TextAudioBiencoder(nn.Module):
     def __init__(self, embedding_dim):
         super(TextAudioBiencoder, self).__init__()
-        self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-large-960h")
-        self.text_encoder = RobertaModel.from_pretrained("roberta-large")
+        self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
+        self.text_encoder = RobertaModel.from_pretrained("roberta-base")
         self.embedding_dim = embedding_dim
-        self.audio_projection = nn.Linear(1024, embedding_dim)  # Fix mismatch (1024 → 768)
+        self.audio_projection = nn.Linear(768, embedding_dim)
 
     def forward(self, audio_input, text_input):
         audio_embeds = self.audio_encoder(**audio_input).last_hidden_state.mean(dim=1)
