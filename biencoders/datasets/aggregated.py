@@ -89,9 +89,8 @@ class AggregatedDataset(Dataset):
         """
         if idx < self.audiocaps_len:
             # Get item from AudioCaps
-            waveform, caption = self.audiocaps_dataset[idx]
+            waveform, captions = self.audiocaps_dataset[idx]
             # Convert single caption to list format for consistency
-            captions = [caption]
         else:
             # Get item from Clotho
             clotho_idx = idx - self.audiocaps_len
