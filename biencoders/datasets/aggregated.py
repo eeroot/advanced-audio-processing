@@ -10,9 +10,9 @@ import torchaudio
 from torch.utils.data import Dataset, ConcatDataset
 from transformers import RobertaTokenizer, Wav2Vec2Processor
 
-from utils import random_augment
-from audiocaps import AudioCapsDataset
-from clothov2 import ClothoDataset
+from .utils import random_augment
+from .audiocaps import AudioCapsDataset
+from .clothov2 import ClothoDataset
 
 
 logging.basicConfig(
@@ -33,19 +33,22 @@ class AggregatedDataset(Dataset):
     ):
         """
         Args:
-            audiocaps_dir (str): Path to AudioCaps audio directory
+            audiocaps_dir (Path): Path to AudioCaps audio directory
             clotho_csv (Path): Path to Clotho CSV file
             clotho_dir (str): Path to Clotho audio directory
             transform (callable, optional): Transform to apply to audio
             target_sample_rate (int): Target sample rate for audio files
         """
         # Initialize individual datasets
-        logging.info("Initializing AudioCaps dataset...")
+        logging.info(f"Initializing AudioCaps dataset for split {split}...")
         audio_processor = Wav2Vec2Processor.from_pretrained(
             "facebook/wav2vec2-large-960h")
         tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
 
         # Load data
+        if type(audiocaps_dir) == str:
+            audiocaps_dir = Path(audiocaps_dir)
+
         csv = pd.read_csv(audiocaps_dir / f"{split}.csv")
 
         # Extract audio IDs and captions
