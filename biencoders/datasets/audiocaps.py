@@ -21,7 +21,7 @@ class AudioCapsDataset(Dataset):
         self.audio_folder = audio_folder
         self.tokenizer = tokenizer
         self.audio_processor = audio_processor
-        self.transform = transforms
+        self.transforms = transforms
 
     def __len__(self):
         return len(self.audio_ids)
