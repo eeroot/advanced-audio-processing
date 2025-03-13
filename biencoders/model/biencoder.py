@@ -22,9 +22,12 @@ class TextAudioBiencoder(nn.Module):
         self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-large-960h")
         self.text_encoder = RobertaModel.from_pretrained("roberta-large")
         self.embedding_dim = embedding_dim
+        self.audio_projection = nn.Linear(1024, embedding_dim)  # Fix mismatch (1024 → 768)
 
     def forward(self, audio_input, text_input):
         audio_embeds = self.audio_encoder(**audio_input).last_hidden_state.mean(dim=1)
+        audio_embeds = self.audio_projection(audio_embeds)  # Align with RoBERTa
+
         text_embeds = self.text_encoder(**text_input).last_hidden_state.mean(dim=1)
         return audio_embeds, text_embeds
 
@@ -39,9 +42,6 @@ class TransformerDecoder(nn.Module):
         self.positional_encoding = nn.Parameter(torch.randn(1, 500, embedding_dim))  # max caption length 500
         decoder_layer = nn.TransformerDecoderLayer(d_model=embedding_dim, nhead=nhead)
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
-        #self.transformer_decoder = nn.TransformerDecoder(
-        #    d_model=embedding_dim, nhead=nhead, num_layers=num_layers
-        #)
         self.fc_out = nn.Linear(embedding_dim, vocab_size)
         self.dropout = nn.Dropout(0.1)
 
@@ -50,10 +50,13 @@ class TransformerDecoder(nn.Module):
         text_input_ids = text_input['input_ids'].squeeze(1)
         embedded_text = self.embedding(text_input_ids) + self.positional_encoding[:, :text_input_ids.size(1), :]
 
+        # Fix memory shape (ensure correct format for TransformerDecoder)
+        memory = audio_embeds.unsqueeze(1)  # (batch_size, 1, d_model)
+        memory = memory.permute(1, 0, 2)  # Ensure shape is (seq_len=1, batch_size, d_model=768)
+
         # Pass through Transformer Decoder
-        memory = audio_embeds.unsqueeze(0)  # Adding batch dimension
-        transformer_out = self.transformer_decoder(embedded_text, memory)
+        transformer_out = self.transformer_decoder(embedded_text.permute(1, 0, 2), memory)  # Ensure proper dimensions
 
         # Output layer to get prediction
-        output = self.fc_out(transformer_out)
+        output = self.fc_out(transformer_out.permute(1, 0, 2))  # Restore batch-first format
         return output

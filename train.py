@@ -39,7 +39,13 @@ def collate_fn(batch):
 
 # Contrastive loss function
 def contrastive_loss(audio_embeds, text_embeds, margin=0.1):
-    cosine_similarity = F.cosine_similarity(audio_embeds, text_embeds)
+    # Ensure matching dimensions for cosine similarity
+    if audio_embeds.shape[1] != text_embeds.shape[1]:
+        min_dim = min(audio_embeds.shape[1], text_embeds.shape[1])
+        audio_embeds = audio_embeds[:, :min_dim]
+        text_embeds = text_embeds[:, :min_dim]
+
+    cosine_similarity = F.cosine_similarity(audio_embeds, text_embeds, dim=-1)
     loss = torch.mean(F.relu(margin - cosine_similarity))
     return loss
 
@@ -51,13 +57,18 @@ def evaluate(model, dataloader, device):
 
     with torch.no_grad():
         for audio_input, text_input in tqdm(dataloader, desc="Evaluating"):
-            audio_input = {key: val.squeeze(1).to(
-                device) for key, val in audio_input.items()}
-            text_input = {key: val.squeeze(1).to(device)
-                          for key, val in text_input.items()}
+            audio_input = {key: val.squeeze(1).to(device) for key, val in audio_input.items()}
+            text_input = {key: val.squeeze(1).to(device) for key, val in text_input.items()}
 
             audio_embeds, text_embeds = model(audio_input, text_input)
-            cosine_sim = F.cosine_similarity(audio_embeds, text_embeds)
+
+            # Fix: Ensure the same embedding size before computing cosine similarity
+            if audio_embeds.shape[1] != text_embeds.shape[1]:
+                min_dim = min(audio_embeds.shape[1], text_embeds.shape[1])
+                audio_embeds = audio_embeds[:, :min_dim]
+                text_embeds = text_embeds[:, :min_dim]
+
+            cosine_sim = F.cosine_similarity(audio_embeds, text_embeds, dim=-1)
             all_cosine_similarities.append(cosine_sim.cpu().numpy())
 
     all_cosine_similarities = np.concatenate(all_cosine_similarities)
@@ -67,8 +78,12 @@ def evaluate(model, dataloader, device):
 # Main function to train and evaluate the model
 def train(
     model, train_loader, val_loader, test_loader,
-    epochs=10, lr=1e-5, device='cpu'
+    epochs=10, lr=1e-5, device=None
 ):
+    
+    if device is None:
+        device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -78,8 +93,13 @@ def train(
         model.train()
         epoch_loss = 0
 
+        max_batches = 10
+    
         # Training loop
-        for audio_input, text_input in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
+        for batch_idx, (audio_input, text_input) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")):
+            if batch_idx >= max_batches:
+                break # Stop early to use only a portion of the dataset
+
             audio_input = {key: val.squeeze(1).to(
                 device) for key, val in audio_input.items()}
             text_input = {key: val.squeeze(1).to(device)
@@ -91,8 +111,13 @@ def train(
             # Generate predictions using the Transformer Decoder
             output = model.decoder(audio_embeds, text_input)
             target = text_input['input_ids'][:, 1:]  # Remove <bos> token
-            loss = F.cross_entropy(
-                output.view(-1, output.size(-1)), target.view(-1))
+
+            # Compute losses
+            contrastive = contrastive_loss(audio_embeds, text_embeds)
+            cross_entropy = F.cross_entropy(output[:, :target.shape[1], :].reshape(-1, output.size(-1)), target.reshape(-1))
+
+            # Weighted sum of losses
+            loss = contrastive + cross_entropy
 
             loss.backward()
             optimizer.step()
@@ -163,7 +188,7 @@ def train(
 # Other helper functions (recall_at_k, kl_divergence, plot_tsne) remain the same
 
 if __name__ == "__main__":
-    epochs = 2
+    epochs = 10
     lr = 1e-5
     # Check if CUDA is available, else use CPU
     device = "mps" if torch.backends.mps.is_available(
@@ -186,11 +211,11 @@ if __name__ == "__main__":
     )
 
     # DataLoader
-    train_loader = DataLoader(
-        dataset_train, batch_size=16, shuffle=True, collate_fn=collate_fn)
-    val_loader = DataLoader(dataset_val, batch_size=16,
+    train_loader = DataLoader(dataset_train, batch_size=8, 
+                              shuffle=True, collate_fn=collate_fn)
+    val_loader = DataLoader(dataset_val, batch_size=8,
                             shuffle=False, collate_fn=collate_fn)
-    test_loader = DataLoader(dataset_test, batch_size=16,
+    test_loader = DataLoader(dataset_test, batch_size=8,
                              shuffle=False, collate_fn=collate_fn)
 
     # Instantiate model with transformer decoder
