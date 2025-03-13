@@ -12,6 +12,13 @@ from biencoders.datasets.utils import random_augment
 from biencoders.model.biencoder import TextAudioBiencoder, TransformerDecoder
 
 
+def count_parameters(model):
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total Parameters: {total_params:,}")
+    print(f"Trainable Parameters: {trainable_params:,}")
+
+
 def collate_fn(batch):
     audio_inputs, text_inputs = zip(*batch)  # Unpack batch
 
@@ -93,12 +100,15 @@ def train(
         model.train()
         epoch_loss = 0
 
-        max_batches = 10
+        # Early stopping
+        max_batches = 150
     
         # Training loop
         for batch_idx, (audio_input, text_input) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")):
+
+            # Stop early to use only a portion of the dataset
             if batch_idx >= max_batches:
-                break # Stop early to use only a portion of the dataset
+                break 
 
             audio_input = {key: val.squeeze(1).to(
                 device) for key, val in audio_input.items()}
@@ -197,29 +207,18 @@ if __name__ == "__main__":
 
     # Load dataset splits using AggregatedDataset class
     audiocaps_dir = 'data/audiocaps'
-    dataset_train = AggregatedDataset(
-        audiocaps_dir=audiocaps_dir,
-        transform=random_augment,
-    )
-    dataset_val = AggregatedDataset(
-        split='val',
-        audiocaps_dir=audiocaps_dir,
-    )
-    dataset_test = AggregatedDataset(
-        split='test',
-        audiocaps_dir=audiocaps_dir,
-    )
+    dataset_train = AggregatedDataset(split='train' ,audiocaps_dir=audiocaps_dir, transform=random_augment)
+    dataset_val = AggregatedDataset(split='val', audiocaps_dir=audiocaps_dir)
+    dataset_test = AggregatedDataset(split='test', audiocaps_dir=audiocaps_dir)
 
     # DataLoader
-    train_loader = DataLoader(dataset_train, batch_size=8, 
-                              shuffle=True, collate_fn=collate_fn)
-    val_loader = DataLoader(dataset_val, batch_size=8,
-                            shuffle=False, collate_fn=collate_fn)
-    test_loader = DataLoader(dataset_test, batch_size=8,
-                             shuffle=False, collate_fn=collate_fn)
+    train_loader = DataLoader(dataset_train, batch_size=8, shuffle=True, collate_fn=collate_fn)
+    val_loader = DataLoader(dataset_val, batch_size=8, shuffle=False, collate_fn=collate_fn)
+    test_loader = DataLoader(dataset_test, batch_size=8, shuffle=False, collate_fn=collate_fn)
 
     # Instantiate model with transformer decoder
     model = TextAudioBiencoder(embedding_dim=768)
+    count_parameters(model)
     model.decoder = TransformerDecoder(embedding_dim=768)
 
     # Train the model
