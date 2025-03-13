@@ -31,8 +31,10 @@ class TextAudioBiencoder(nn.Module):
 
 # Transformer Decoder for Caption Generation
 class TransformerDecoder(nn.Module):
-    def __init__(self, embedding_dim, vocab_size, nhead=8, num_layers=6):
+    def __init__(self, embedding_dim, nhead=8, num_layers=6):
         super(TransformerDecoder, self).__init__()
+        tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
+        vocab_size = tokenizer.vocab_size
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
         self.positional_encoding = nn.Parameter(torch.randn(1, 500, embedding_dim))  # max caption length 500
         decoder_layer = nn.TransformerDecoderLayer(d_model=embedding_dim, nhead=nhead)

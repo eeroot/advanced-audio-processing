@@ -6,7 +6,6 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from transformers import RobertaTokenizer, RobertaModel
 
 from biencoders.datasets.aggregated import AggregatedDataset
 from biencoders.datasets.utils import random_augment
@@ -171,12 +170,6 @@ if __name__ == "__main__":
     ) else "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Process on {device}", end="\n\n")
 
-    # Load pre-trained models
-    audio_encoder = Wav2Vec2Model.from_pretrained(
-        "facebook/wav2vec2-large-960h")
-    text_encoder = RobertaModel.from_pretrained("roberta-large")
-    tokenizer = RobertaTokenizer.from_pretrained("roberta-large")
-
     # Load dataset splits using AggregatedDataset class
     audiocaps_dir = 'data/audiocaps'
     dataset_train = AggregatedDataset(
@@ -201,9 +194,8 @@ if __name__ == "__main__":
                              shuffle=False, collate_fn=collate_fn)
 
     # Instantiate model with transformer decoder
-    model = TextAudioBiencoder(audio_encoder, text_encoder, embedding_dim=768)
-    model.decoder = TransformerDecoder(
-        embedding_dim=768, vocab_size=len(tokenizer))
+    model = TextAudioBiencoder(embedding_dim=768)
+    model.decoder = TransformerDecoder(embedding_dim=768)
 
     # Train the model
     train(model, train_loader, val_loader, test_loader, epochs, lr, device)
