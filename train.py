@@ -11,6 +11,8 @@ from biencoders.datasets.aggregated import AggregatedDataset
 from biencoders.datasets.utils import random_augment
 from biencoders.model.biencoder import TextAudioBiencoder, TransformerDecoder
 
+from sklearn.manifold import TSNE
+import matplotlib.pyplot as plt
 
 def count_parameters(model):
     total_params = sum(p.numel() for p in model.parameters())
@@ -56,6 +58,32 @@ def contrastive_loss(audio_embeds, text_embeds, margin=0.1):
     loss = torch.mean(F.relu(margin - cosine_similarity))
     return loss
 
+def recall_at_k(similarity_matrix, k):
+    """Computes Recall@K for text-to-audio retrieval"""
+    num_queries = similarity_matrix.shape[0]
+    correct = 0
+    for i in range(num_queries):
+        top_k_indices = np.argsort(similarity_matrix[i])[::-1][:k]
+        if i in top_k_indices:
+            correct += 1
+    return correct / num_queries
+
+def kl_divergence(audio_embeds, text_embeds):
+    """Computes KL Divergence between audio and text embeddings"""
+    return F.kl_div(audio_embeds.log_softmax(dim=-1), text_embeds.softmax(dim=-1), reduction="batchmean").item()
+
+def plot_tsne(audio_embeds, text_embeds):
+    """Visualizes embeddings using t-SNE"""
+    embeddings = torch.cat([audio_embeds, text_embeds]).detach().cpu().numpy()
+    tsne = TSNE(n_components=2, perplexity=30, random_state=42)
+    reduced_embeddings = tsne.fit_transform(embeddings)
+    
+    plt.figure(figsize=(8,6))
+    plt.scatter(reduced_embeddings[:len(audio_embeds), 0], reduced_embeddings[:len(audio_embeds), 1], label="Audio", marker="o", alpha=0.6)
+    plt.scatter(reduced_embeddings[len(audio_embeds):, 0], reduced_embeddings[len(audio_embeds):, 1], label="Text", marker="s", alpha=0.6)
+    plt.legend()
+    plt.title("t-SNE Visualization of Embeddings")
+    plt.show()
 
 # Evaluation metrics: cosine similarity
 def evaluate(model, dataloader, device):
