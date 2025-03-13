@@ -34,6 +34,10 @@ class AudioCapsDataset(Dataset):
         audio_path = os.path.join(self.audio_folder, f"{audio_id}.wav")
         waveform, sr = torchaudio.load(audio_path)
 
+        # **Check for empty waveform**
+        if waveform.numel() == 0:
+            raise ValueError(f"Empty waveform encountered at index {idx}, file: {audio_path}")
+
         if self.transforms:
             waveform = self.transforms(waveform)
 
