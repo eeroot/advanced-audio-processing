@@ -13,13 +13,15 @@ class AudioCapsDataset(Dataset):
                  captions,
                  audio_folder,
                  tokenizer,
-                 audio_processor
+                 audio_processor,
+                 transforms=None,
                  ):
         self.audio_ids = audio_ids
         self.captions = captions
         self.audio_folder = audio_folder
         self.tokenizer = tokenizer
         self.audio_processor = audio_processor
+        self.transform = transforms
 
     def __len__(self):
         return len(self.audio_ids)
@@ -31,6 +33,9 @@ class AudioCapsDataset(Dataset):
         # Load audio using torchaudio
         audio_path = os.path.join(self.audio_folder, f"{audio_id}.wav")
         waveform, sr = torchaudio.load(audio_path)
+
+        if self.transforms:
+            waveform = self.transforms(waveform)
 
         if waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
