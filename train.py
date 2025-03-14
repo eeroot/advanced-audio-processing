@@ -128,15 +128,8 @@ def train(
         model.train()
         epoch_loss = 0
 
-        # Early stopping
-        max_batches = 150
-    
         # Training loop
-        for batch_idx, (audio_input, text_input) in enumerate(tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")):
-
-            # Stop early to use only a portion of the dataset
-            if batch_idx >= max_batches:
-                break 
+        for audio_input, text_input in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
 
             audio_input = {key: val.squeeze(1).to(
                 device) for key, val in audio_input.items()}
@@ -180,53 +173,53 @@ def train(
     print(f"Test Cosine Similarity: {test_score}")
 
 
-# def evaluate_test(model, data_loader, device='cpu'):
-#     """Evaluates model using Recall@K, KL Divergence, and t-SNE."""
-#     model.eval()
-#     audio_embeddings, text_embeddings = [], []
+def evaluate_test(model, data_loader, device='cpu'):
+    """Evaluates model using Recall@K, KL Divergence, and t-SNE."""
+    model.eval()
+    audio_embeddings, text_embeddings = [], []
 
-#     with torch.no_grad():
-#         for audio_input, text_input in tqdm(data_loader, desc="Evaluating"):
-#             audio_input = {key: val.squeeze(1).to(
-#                 device) for key, val in audio_input.items()}
-#             text_input = {key: val.squeeze(1).to(device)
-#                           for key, val in text_input.items()}
+    with torch.no_grad():
+        for audio_input, text_input in tqdm(data_loader, desc="Evaluating"):
+            audio_input = {key: val.squeeze(1).to(
+                device) for key, val in audio_input.items()}
+            text_input = {key: val.squeeze(1).to(device)
+                          for key, val in text_input.items()}
 
-#             audio_embeds, text_embeds = model(audio_input, text_input)
-#             audio_embeddings.append(audio_embeds)
-#             text_embeddings.append(text_embeds)
+            audio_embeds, text_embeds = model(audio_input, text_input)
+            audio_embeddings.append(audio_embeds)
+            text_embeddings.append(text_embeds)
 
-#     # Convert to tensors
-#     audio_embeddings = torch.cat(audio_embeddings)
-#     text_embeddings = torch.cat(text_embeddings)
+    # Convert to tensors
+    audio_embeddings = torch.cat(audio_embeddings)
+    text_embeddings = torch.cat(text_embeddings)
 
-#     # Compute cosine similarity
-#     similarity_matrix = torch.mm(
-#         text_embeddings, audio_embeddings.T).cpu().numpy()
+    # Compute cosine similarity
+    similarity_matrix = torch.mm(
+        text_embeddings, audio_embeddings.T).cpu().numpy()
 
-#     # Compute Recall@K
-#     recall_k1 = recall_at_k(similarity_matrix, 1)
-#     recall_k5 = recall_at_k(similarity_matrix, 5)
-#     recall_k10 = recall_at_k(similarity_matrix, 10)
+    # Compute Recall@K
+    recall_k1 = recall_at_k(similarity_matrix, 1)
+    recall_k5 = recall_at_k(similarity_matrix, 5)
+    recall_k10 = recall_at_k(similarity_matrix, 10)
 
-#     # Compute KL Divergence
-#     kl_div = kl_divergence(audio_embeddings, text_embeddings)
+    # Compute KL Divergence
+    kl_div = kl_divergence(audio_embeddings, text_embeddings)
 
-#     # Print results
-#     print(
-#         f"Recall@1: {recall_k1:.4f}, Recall@5: {recall_k5:.4f}, Recall@10: {recall_k10:.4f}")
-#     print(f"KL Divergence: {kl_div:.4f}")
+    # Print results
+    print(
+        f"Recall@1: {recall_k1:.4f}, Recall@5: {recall_k5:.4f}, Recall@10: {recall_k10:.4f}")
+    print(f"KL Divergence: {kl_div:.4f}")
 
-#     # t-SNE Visualization
-#     plot_tsne(audio_embeddings, text_embeddings)
+    # t-SNE Visualization
+    plot_tsne(audio_embeddings, text_embeddings)
 
-#     return recall_k1, recall_k5, recall_k10, kl_div
+    return recall_k1, recall_k5, recall_k10, kl_div
 
 
 # Other helper functions (recall_at_k, kl_divergence, plot_tsne) remain the same
 
 if __name__ == "__main__":
-    epochs = 10
+    epochs = 100
     lr = 1e-5
     # Check if CUDA is available, else use CPU
     device = "mps" if torch.backends.mps.is_available(
@@ -240,9 +233,9 @@ if __name__ == "__main__":
     dataset_test = AggregatedDataset(split='test', audiocaps_dir=audiocaps_dir)
 
     # DataLoader
-    train_loader = DataLoader(dataset_train, batch_size=8, shuffle=True, collate_fn=collate_fn)
-    val_loader = DataLoader(dataset_val, batch_size=8, shuffle=False, collate_fn=collate_fn)
-    test_loader = DataLoader(dataset_test, batch_size=8, shuffle=False, collate_fn=collate_fn)
+    train_loader = DataLoader(dataset_train, batch_size=4, shuffle=True, collate_fn=collate_fn)
+    val_loader = DataLoader(dataset_val, batch_size=4, shuffle=False, collate_fn=collate_fn)
+    test_loader = DataLoader(dataset_test, batch_size=4, shuffle=False, collate_fn=collate_fn)
 
     # Instantiate model with transformer decoder
     model = TextAudioBiencoder(embedding_dim=768)
