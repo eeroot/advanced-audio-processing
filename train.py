@@ -124,6 +124,9 @@ def train(
 
     best_val_score = -1
 
+    train_losses = []
+    val_similarities = []
+
     for epoch in range(epochs):
         model.train()
         epoch_loss = 0
@@ -155,12 +158,14 @@ def train(
 
             epoch_loss += loss.item()
 
-        print(
-            f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss / len(train_loader)}")
+        avg_train_loss = epoch_loss / len(train_loader)
+        train_losses.append(avg_train_loss)
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_train_loss}")
 
         # Validation loop
         val_score = evaluate(model, val_loader, device)
         print(f"Validation Cosine Similarity: {val_score}")
+        val_similarities.append(val_score)
 
         if val_score > best_val_score:
             best_val_score = val_score
@@ -168,9 +173,37 @@ def train(
             torch.save(model.state_dict(), "best_model.pth")
 
     # Test loop
-    model.load_state_dict(torch.load("best_model.pth"))
+    model.load_state_dict(torch.load("best_model.pth", weights_only=True))
     test_score = evaluate(model, test_loader, device)
     print(f"Test Cosine Similarity: {test_score}")
+
+    # Plot training loss and cosine similarity
+    plot_training_results(train_losses, val_similarities)
+
+
+def plot_training_results(train_losses, val_similarities):
+    epochs = range(1, len(train_losses) + 1)
+
+    plt.figure(figsize=(12, 5))
+
+    # Plot losses
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, train_losses, label="Train Loss", marker="o")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.title("Training Loss")
+    plt.legend()
+
+    # Plot cosine similarity
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs, val_similarities, label="Validation Cosine Similarity", marker="o", color="green")
+    plt.xlabel("Epochs")
+    plt.ylabel("Cosine Similarity")
+    plt.title("Validation Cosine Similarity")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
 
 
 def evaluate_test(model, data_loader, device='cpu'):
@@ -244,4 +277,4 @@ if __name__ == "__main__":
 
     # Train the model
     train(model, train_loader, val_loader, test_loader, epochs, lr, device)
-    # evaluate_test(model, test_loader, device=device)
+    evaluate_test(model, test_loader, device=device)
