@@ -27,8 +27,28 @@ setup.py
 train.py
 utils/
 ```
+## Run instructions
+
+### install depenencies
+
+```
+> pip install -r requirements.txt
+```
+
+### Download dataset
+
+```bash
+> python helpers/audiocaps_downloader.py [--train-size 10] [--val-size 5] [--test-size 5]
+```
+
+### Run training
+
+```bash
+> python train.py
+```
 
 ## Train logs
+
 ```bash
 2025-03-14 01:09:32.786351: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:477] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
 WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
